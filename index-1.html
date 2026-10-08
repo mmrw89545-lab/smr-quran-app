@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>موقع عمرو للاستماع للقرآن</title>
+<meta name="description" content="موقع عمرو للاستماع للقرآن الكريم">
+<style>
+:root{--bg:#071a16;--card:#0d2922;--card2:#10352c;--text:#f4f1df;--muted:#b8c9c2;--accent:#d9b86c;--accent2:#e8ce8c;--line:#21483d}
+*{box-sizing:border-box} body{margin:0;font-family:Tahoma,Arial,sans-serif;background:radial-gradient(circle at top,#12392e 0,#071a16 55%);color:var(--text)}
+header{padding:34px 18px 24px;text-align:center;border-bottom:1px solid var(--line);background:linear-gradient(180deg,#0e3027cc,#071a16cc)}
+.logo{font-size:38px;font-weight:800;color:var(--accent2);margin-bottom:8px}.sub{color:var(--muted);font-size:16px}
+.container{max-width:1100px;margin:auto;padding:22px 16px 130px}
+.controls{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:22px}
+input,select{width:100%;padding:14px 16px;border-radius:14px;border:1px solid var(--line);background:var(--card);color:var(--text);font-size:16px;outline:none}
+.section-title{display:flex;align-items:center;justify-content:space-between;margin:20px 0 12px}.section-title h2{margin:0;font-size:22px}.count{color:var(--muted);font-size:13px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}
+.card{background:linear-gradient(145deg,var(--card),#0a211b);border:1px solid var(--line);border-radius:18px;padding:16px;transition:.2s;cursor:pointer}
+.card:hover{transform:translateY(-2px);border-color:#8f7b49}.card.active{border-color:var(--accent);box-shadow:0 0 0 1px #d9b86c33}
+.num{width:38px;height:38px;border:1px solid #6f6344;border-radius:50%;display:grid;place-items:center;color:var(--accent);font-weight:bold;margin-bottom:10px}
+.name{font-size:18px;font-weight:700}.meta{font-size:12px;color:var(--muted);margin-top:7px;line-height:1.7}
+button{border:0;border-radius:12px;padding:11px 15px;background:var(--accent);color:#1b180e;font-weight:800;cursor:pointer}
+.player{position:fixed;bottom:0;left:0;right:0;background:rgba(5,18,15,.96);border-top:1px solid var(--line);backdrop-filter:blur(12px);padding:12px 16px;z-index:5}
+.player-inner{max-width:1100px;margin:auto;display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center}.now{font-weight:700}.now small{display:block;color:var(--muted);font-weight:normal;margin-top:3px}
+audio{width:min(520px,100%);height:40px}
+.status{text-align:center;color:var(--muted);padding:30px}.error{color:#f0a6a6}
+@media(max-width:700px){.controls{grid-template-columns:1fr}.logo{font-size:28px}.player-inner{grid-template-columns:1fr}.player audio{width:100%}}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">☾ موقع عمرو للاستماع للقرآن</div>
+  <div class="sub">استمع إلى القرآن الكريم بصوت القرّاء المفضلين لديك</div>
+</header>
+
+<main class="container">
+  <div class="controls">
+    <input id="search" type="search" placeholder="ابحث عن سورة أو شيخ...">
+    <select id="reciter"><option value="">كل الشيوخ والقرّاء</option></select>
+  </div>
+
+  <div class="section-title">
+    <h2>سور القرآن الكريم</h2><span class="count" id="count"></span>
+  </div>
+  <div id="surahs" class="grid"><div class="status">جاري تحميل السور والقرّاء...</div></div>
+
+  <div class="section-title">
+    <h2>القرّاء</h2><span class="count" id="rCount"></span>
+  </div>
+  <div id="reciters" class="grid"></div>
+</main>
+
+<div class="player">
+  <div class="player-inner">
+    <div class="now" id="now">اختر سورة لبدء الاستماع
+      <small>سيظهر اسم القارئ والسورة هنا</small>
+    </div>
+    <audio id="audio" controls preload="none"></audio>
+  </div>
+</div>
+
+<script>
+const API="https://mp3quran.net/api/v3";
+let surahs=[], reciters=[], selectedReciter=null, selectedMoshaf=null;
+
+const $=id=>document.getElementById(id);
+function esc(s){return String(s??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]));}
+function audioUrl(server,n){return server + String(n).padStart(3,"0") + ".mp3";}
+
+async function load(){
+  try{
+    const [s,r]=await Promise.all([
+      fetch(API+"/suwar?language=ar").then(x=>x.json()),
+      fetch(API+"/reciters?language=ar").then(x=>x.json())
+    ]);
+    surahs=s.suwar||[]; reciters=r.reciters||[];
+    const select=$("reciter");
+    reciters.forEach(x=>{
+      const o=document.createElement("option");o.value=x.id;o.textContent=x.name;select.appendChild(o);
+    });
+    renderSurahs(); renderReciters();
+  }catch(e){
+    $("surahs").innerHTML='<div class="status error">تعذر تحميل البيانات الآن. تأكد من اتصال الإنترنت ثم أعد تحميل الصفحة.</div>';
+  }
+}
+
+function renderSurahs(){
+  const q=$("search").value.trim().toLowerCase(), rid=selectedReciter;
+  let list=surahs.filter(s=>(s.name||"").toLowerCase().includes(q));
+  if(rid){
+    const r=reciters.find(x=>String(x.id)===String(rid));
+    const m=r?.moshaf?.[0];
+    if(m){const allowed=new Set((m.surah_list||"").split(",").map(Number));list=list.filter(s=>allowed.has(Number(s.id)));}
+  }
+  $("count").textContent=list.length+" سورة";
+  $("surahs").innerHTML=list.map(s=>`
+    <div class="card" onclick="playSurah(${s.id})">
+      <div class="num">${s.id}</div>
+      <div class="name">${esc(s.name)}</div>
+      <div class="meta">${esc(s.type||"القرآن الكريم")} · صفحة ${esc(s.start_page||"")}</div>
+    </div>`).join("") || '<div class="status">لا توجد نتائج.</div>';
+}
+
+function renderReciters(){
+  const q=$("search").value.trim().toLowerCase();
+  const list=reciters.filter(r=>(r.name||"").toLowerCase().includes(q));
+  $("rCount").textContent=list.length+" قارئ";
+  $("reciters").innerHTML=list.slice(0,120).map(r=>`
+    <div class="card ${String(selectedReciter)===String(r.id)?"active":""}" onclick="chooseReciter(${r.id})">
+      <div class="num">🎙</div><div class="name">${esc(r.name)}</div>
+      <div class="meta">${r.moshaf?.length||0} رواية/مصحف متاح</div>
+    </div>`).join("");
+}
+
+function chooseReciter(id){
+  selectedReciter=id;
+  const r=reciters.find(x=>String(x.id)===String(id));
+  selectedMoshaf=r?.moshaf?.[0]||null;
+  $("reciter").value=id;
+  renderSurahs(); renderReciters();
+  window.scrollTo({top:0,behavior:"smooth"});
+}
+
+function playSurah(id){
+  if(!selectedMoshaf){
+    const r=reciters.find(x=>String(x.id)==="1")||reciters[0];
+    selectedMoshaf=r?.moshaf?.[0];
+    selectedReciter=r?.id;
+  }
+  if(!selectedMoshaf)return;
+  const s=surahs.find(x=>Number(x.id)===Number(id));
+  const r=reciters.find(x=>String(x.id)===String(selectedReciter));
+  const url=audioUrl(selectedMoshaf.server,id);
+  $("audio").src=url; $("audio").play().catch(()=>{});
+  $("now").innerHTML=`${esc(s?.name||"السورة")} — ${esc(r?.name||"القارئ")}<small>${esc(selectedMoshaf.name||"تلاوة")}</small>`;
+}
+
+$("search").addEventListener("input",()=>{renderSurahs();renderReciters();});
+$("reciter").addEventListener("change",e=>{selectedReciter=e.target.value||null;const r=reciters.find(x=>String(x.id)===String(selectedReciter));selectedMoshaf=r?.moshaf?.[0]||null;renderSurahs();renderReciters();});
+load();
+</script>
+</body>
+</html>
